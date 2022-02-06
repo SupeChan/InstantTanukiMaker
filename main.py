@@ -318,6 +318,3 @@ if __name__ == '__main__':
     frame = MainFrame()
     frame.Show()
     app.MainLoop()
-
-# name_save = ("".join([path_selected.stem for path_selected in lst_selected])
-# + f"fps{fps}.gif")

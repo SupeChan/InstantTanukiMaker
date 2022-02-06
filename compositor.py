@@ -144,7 +144,7 @@ class CompositeImage:
                                                            colors=255)
         mask = Image.eval(alpha, lambda a: 255 if a <= 128 else 0)
         image_campus.paste(255, mask=mask)
-        image_campus.save(PATH_GIF_PREVIEW, transparency=255)
+        image_campus.save(PATH_PNG_PREVIEW, transparency=255)
 
     def save_gif(self, path_save=PATH_GIF_PREVIEW):
         size_base = self.image_base.get_size()
