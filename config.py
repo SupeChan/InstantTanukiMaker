@@ -3,10 +3,22 @@ import pathlib
 from PIL import Image, ImageSequence
 from itertools import cycle
 import os
+
+import ctypes
+import win32api
+
 import sys
 import wx
 
-SIZE_ANIME = (600, 600)
+PROCESS_PER_MONITOR_DPI_AWARE = 2
+ctypes.windll.shcore.SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE)
+INFO_MONITOR_FULL = win32api.GetMonitorInfo(win32api.MonitorFromPoint((0, 0)))
+AREA_WORKING = INFO_MONITOR_FULL.get("Work")
+WIDTH_WORKING, HEIGHT_WORKING = AREA_WORKING[2], AREA_WORKING[3]
+
+stem_user_folder = str(pathlib.Path(os.getenv("USERPROFILE")).stem)
+CONTAINS_JAPANESE = not (stem_user_folder.isalnum() and stem_user_folder.isascii())
+
 SIZE_THUMBNAIL = (100, 100)
 DEFAULT_BASE_SIZE = (500, 500)
 
@@ -34,7 +46,7 @@ PATH_PNG_PREVIEW = FOLDER_MATERIAL / "preview.png"
 PATH_GIF_PREVIEW = FOLDER_MATERIAL / "preview.gif"
 SUFFIXES_IMAGE = [".png", ".gif"]
 
-ORDER_COMPOSITE_DEFAULT = [BASE, FACE, BROWS, EYES, MOUTH,EMOTION, ETC, COLLAGE]
+ORDER_COMPOSITE_DEFAULT = [BASE, FACE, BROWS, EYES, MOUTH, EMOTION, ETC, COLLAGE]
 LST_ORDER_PARTS = [FACE, BROWS, EYES, MOUTH, ETC, COLLAGE]
 EXTERNAL = "外部画像"
 

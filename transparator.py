@@ -2,7 +2,6 @@ import wx
 from PIL import Image, ImageChops, ImageOps, ImageSequence
 import cv2
 import numpy as np
-from scipy import stats
 
 import extra
 
@@ -69,7 +68,7 @@ def get_mask_by_edge_cv(path_selected, dest, event, dial_pro):
             frames.append(image_face)
 
         extra.show_message(dest, "透過画像の作成が完了しました。", "作成完了")
-        wx.PostEvent(dest, event(path_image=path_selected,frames=frames))
+        wx.PostEvent(dest, event(path_image=path_selected, frames=frames))
 
     except Exception as e:
         extra.show_message(dest, f"透過画像の作成に失敗しました。\n{e}", "透過画像作成エラー", wx.ICON_WARNING)
@@ -86,7 +85,8 @@ def get_color_mode(nd_image):
     nd_image = nd_image.flatten()
     nd_image = nd_image[nd_image.nonzero()]
 
-    color_mode = stats.mode(nd_image)[0][0]
+    uniques, counts = np.unique(nd_image, return_counts=True)
+    color_mode = uniques[counts == np.amax(counts)].min()
     color_mode = [int(str(color_mode).zfill(9)[3 * i:(3 * (i + 1))]) for i in range(3)]
     return color_mode
 

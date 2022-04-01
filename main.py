@@ -1,7 +1,10 @@
+import sys
+
 import wx
 from wx.adv import AnimationCtrl
 from wx.lib.newevent import NewEvent
 from wx.lib.scrolledpanel import ScrolledPanel
+from wx.lib.agw.floatspin import FloatSpin, EVT_FLOATSPIN
 import ctypes
 import threading
 import numpy as np
@@ -28,6 +31,21 @@ class ThumbnailPanel(ScrolledPanel):
     def setting_widgets(self):
         self.SetupScrolling(scroll_x=False)
         self.SetBackgroundColour("#FFFFFF")
+        self.Bind(wx.EVT_MOUSEWHEEL, self.on_scroll)
+
+    def on_scroll(self, event):
+        pos_delta = 1 if 0 > event.GetWheelRotation() else -1
+        orientation = event.GetWheelAxis()
+        pos_cur = self.GetScrollPos(orientation)
+        scrollrange = (self.GetScrollRange(orientation)
+                       - np.clip(self.GetScrollThumb(orientation), 1, None))
+        pos_next = pos_cur + pos_delta
+        within_scroll_range = 0 <= pos_next <= scrollrange
+
+        if within_scroll_range:
+            event.Skip()
+        else:
+            self.Parent.Parent.GetEventHandler().ProcessEvent(event)
 
     def create_thumbnail(self, path_image):
         image = Image.open(path_image).convert("RGBA")
@@ -208,17 +226,18 @@ class PreviewPanel(wx.Panel):
 class ExtraMenuBar(wx.MenuBar):
     def __init__(self):
         super().__init__()
-
         menu_config, menu_extra = wx.Menu(), wx.Menu()
         menu_change_size = menu_config.Append(-1, "サイズ変更")
         menu_transparent = menu_extra.Append(-1, "肌透過画像追加", "肌と思しき部分を透過して画像一覧に追加します。")
+        self.Bind(wx.EVT_MENU, self.on_transparent, menu_transparent)
+
         menu_separate = menu_extra.Append(-1, "アニメーション画像分割", "選択したアニメーション画像をフレームごとに分割します。")
         menu_connect = menu_extra.Append(-1, "GIF作成", "フォルダ内のPNGを名前順に結合してGIF画像を作成します。")
         # self.Append(menu_config, "設定")
         self.Append(menu_extra, "おまけ機能")
 
         self.Bind(wx.EVT_MENU, self.on_change_size, menu_change_size)
-        self.Bind(wx.EVT_MENU, self.on_transparent, menu_transparent)
+
         self.Bind(wx.EVT_MENU, self.on_separate, menu_separate)
         self.Bind(wx.EVT_MENU, self.on_connect, menu_connect)
 
@@ -282,6 +301,14 @@ class MainFrame(wx.Frame):
         self.btn_down = wx.Button(self.panel, -1, "画面手前")
 
         # 画像全体
+        self.check_size_specified = wx.CheckBox(self.panel, -1, "")
+        self.spin_width = FloatSpin(self.panel, -1, max_val=1000, min_val=500, increment=50,
+                                    style=wx.TE_PROCESS_ENTER)
+        self.spin_height = FloatSpin(self.panel, -1, max_val=1000, min_val=500, increment=50,
+                                     style=wx.TE_PROCESS_ENTER)
+        # self.check_frames_specified = wx.CheckBox(self.panel, -1, "")
+        # self.spin_frames_specified = wx.SpinCtrl(self.panel, -1, max=16, min=1,
+        #                                          style=wx.TE_PROCESS_ENTER)
         self.spin_duration = wx.SpinCtrl(self.panel, -1, value="100", min=20, max=1000,
                                          style=wx.TE_PROCESS_ENTER)
         self.combo_filter_image = wx.ComboBox(self.panel, -1, style=wx.CB_DROPDOWN | wx.CB_READONLY)
@@ -307,7 +334,7 @@ class MainFrame(wx.Frame):
         self.SetMenuBar(ExtraMenuBar())
         self.CreateStatusBar()
 
-        self.panel.SetupScrolling()
+        self.panel.SetupScrolling(scrollToTop=False, scrollIntoView=False)
         self.panel.SetDoubleBuffered(True)
         self.ctrl_color.Disable()
         self.ctrl_color.SetColour((255, 0, 0))
@@ -318,12 +345,18 @@ class MainFrame(wx.Frame):
         self.slider_h.SetTickFreq(50)
         self.slider_v.SetTickFreq(50)
 
+        self.spin_width.Disable()
+        self.spin_height.Disable()
+        self.spin_width.SetDigits(0)
+        self.spin_height.SetDigits(0)
+        # self.spin_frames_specified.Disable()
         self.combo_filter_image.Append(LST_FILTER_IMAGE)
         self.combo_filter_color.Append(LST_FILTER_COLOR)
 
         # バインド
         self.btn_remove.Bind(wx.EVT_BUTTON, self.on_remove(False))
         self.btn_clear.Bind(wx.EVT_BUTTON, self.on_remove(True))
+        self.rlc_image.Bind(wx.EVT_MOUSEWHEEL, self.on_scroll)
         self.rlc_image.Bind(wx.EVT_CHECKLISTBOX, self.on_check_image)
         self.rlc_image.Bind(wx.EVT_LISTBOX, self.on_select_image)
         self.btn_up.Bind(wx.EVT_BUTTON, self.on_move(True))
@@ -350,39 +383,62 @@ class MainFrame(wx.Frame):
         self.spin_zoom.Bind(wx.EVT_SPINCTRLDOUBLE, self.on_change_parts_properties)
         self.spin_zoom.Bind(wx.EVT_TEXT_ENTER, self.on_change_parts_properties)
 
+        self.check_size_specified.Bind(wx.EVT_CHECKBOX, self.on_check_size)
+
+        self.spin_width.Bind(wx.EVT_TEXT_ENTER, self.on_change_composite_properties)
+        self.spin_width.Bind(EVT_FLOATSPIN, self.on_change_composite_properties)
+        self.spin_height.Bind(wx.EVT_TEXT_ENTER, self.on_change_composite_properties)
+        self.spin_height.Bind(EVT_FLOATSPIN, self.on_change_composite_properties)
+        # self.check_frames_specified.Bind(wx.EVT_CHECKBOX, self.on_check_frames)
+        # self.spin_frames_specified.Bind(wx.EVT_TEXT_ENTER, self.on_change_composite_properties)
+        # self.spin_frames_specified.Bind(wx.EVT_SPINCTRL, self.on_change_composite_properties)
+        self.spin_duration.Bind(wx.EVT_TEXT_ENTER, self.on_change_composite_properties)
+        self.spin_duration.Bind(wx.EVT_SPINCTRL, self.on_change_composite_properties)
         self.combo_filter_image.Bind(wx.EVT_COMBOBOX, self.on_change_composite_properties)
         self.combo_filter_color.Bind(wx.EVT_COMBOBOX, self.on_change_composite_properties)
-        self.spin_duration.Bind(wx.EVT_SPINCTRL, self.on_change_composite_properties)
-        self.spin_duration.Bind(wx.EVT_TEXT_ENTER, self.on_change_composite_properties)
 
         self.Bind(EVT_APPEND, self.on_append)
         self.Bind(wx.EVT_ACTIVATE, self.on_deactivate)
 
         # オフセット操作のためにキー入力をインターセプト
-        lst_key_intercept = [self.rlc_image,self.panel_append,
-                             self.slider_h, self.slider_v, self.panel_preview,
-                             self.combo_filter_image,self.combo_filter_color, self.btn_play,
-                             self.btn_save]
+        widgets_key_intercept = [self.rlc_image, self.panel_append,
+                                 self.slider_h, self.slider_v, self.panel_preview,
+                                 self.combo_filter_image, self.combo_filter_color, self.btn_play,
+                                 self.btn_save]
 
-        for widget in lst_key_intercept:
+        for widget in widgets_key_intercept:
             widget.Bind(wx.EVT_CHAR_HOOK, self.on_keyboard)
+
+        # ホイールスクロールの邪魔になるウィジェット
+        widgets_scroll_avoid = [self.slider_v, self.slider_h,
+                                self.combo_alignment,
+                                self.spin_width, self.spin_height,
+                                self.combo_filter_image, self.combo_filter_color]
+
+        for widget in widgets_scroll_avoid:
+            widget.Bind(wx.EVT_MOUSEWHEEL, lambda e: self.panel.GetEventHandler().ProcessEvent(e))
+            for child in widget.Children:
+                child.Bind(wx.EVT_MOUSEWHEEL,
+                           lambda e: self.panel.GetEventHandler().ProcessEvent(e))
 
         self.btn_play.Bind(wx.EVT_BUTTON, self.on_play)
         self.btn_save.Bind(wx.EVT_BUTTON, self.on_save)
+
         self.Bind(EVT_UPDATE, self.on_update_composite)
         self.Bind(wx.EVT_CLOSE, self.on_close)
 
         # プレビュー
         fxsizer_preview = wx.FlexGridSizer(rows=2, cols=2, gap=(0, 0))
-        fxsizer_status = wx.FlexGridSizer(rows=2, cols=3, gap=(5, 5))
+        gbsizer_status = wx.GridBagSizer()
 
-        fxsizer_status.Add(wx.StaticText(self.panel, -1, "フレーム", style=wx.ALIGN_RIGHT), 0, wx.GROW)
-        fxsizer_status.Add(self.spin_frame, 0, wx.GROW)
-        fxsizer_status.Add(self.text_frame, 0, wx.GROW | wx.ALIGN_CENTER_VERTICAL)
+        gbsizer_status.Add(wx.StaticText(self.panel, -1, "フレーム", style=wx.ALIGN_CENTER), (0, 0),
+                           (1, 2), wx.GROW)
+        gbsizer_status.Add(self.spin_frame, (1, 0), (1, 1), wx.GROW)
+        gbsizer_status.Add(self.text_frame, (1, 1), (1, 1), wx.GROW | wx.ALIGN_CENTER_VERTICAL)
 
         fxsizer_preview.AddGrowableCol(1)
         fxsizer_preview.AddGrowableRow(1)
-        fxsizer_preview.Add(fxsizer_status, 0, wx.ALIGN_RIGHT | wx.ALIGN_BOTTOM)
+        fxsizer_preview.Add(gbsizer_status, 1, wx.ALIGN_RIGHT | wx.ALIGN_BOTTOM)
         fxsizer_preview.Add(self.slider_h, 1, wx.GROW | wx.ALIGN_BOTTOM)
         fxsizer_preview.Add(self.slider_v, 1, wx.GROW | wx.ALIGN_RIGHT)
         fxsizer_preview.Add(self.panel_preview, 1, wx.GROW)
@@ -393,7 +449,7 @@ class MainFrame(wx.Frame):
         sbsizer_parts = wx.StaticBoxSizer(sbox_parts, wx.VERTICAL)
         sizer_selected = wx.BoxSizer()
         sizer_parts = wx.BoxSizer()
-        fxsizer_alignment = wx.FlexGridSizer(rows=3, cols=2, gap=(5, 5))
+        fxsizer_alignment = wx.FlexGridSizer(rows=3, cols=2, gap=(15, 5))
         fxsizer_option = wx.FlexGridSizer(rows=6, cols=2, gap=(5, 5))
 
         sizer_selected.Add(wx.StaticText(self.panel, -1, "選択中画像：", style=wx.ALIGN_LEFT),
@@ -428,24 +484,54 @@ class MainFrame(wx.Frame):
         # 合成画像全体
         sbox_composite = wx.StaticBox(self.panel, -1, "合成プロパティ")
         sbsizer_composite = wx.StaticBoxSizer(sbox_composite, wx.VERTICAL)
+        sizer_param = wx.BoxSizer()
         sizer_filter = wx.BoxSizer(wx.VERTICAL)
-        fxsizer_filter = wx.FlexGridSizer(rows=2, cols=3, gap=(5, 5))
-        fxsizer_filter.AddGrowableCol(1)
-        fxsizer_filter.AddGrowableCol(2)
 
-        fxsizer_filter.Add(wx.StaticText(self.panel, -1, "表示間隔", style=wx.ALIGN_CENTER), 1,
-                           wx.GROW)
+        fxsizer_size = wx.FlexGridSizer(rows=3, cols=4, gap=(0, 0))
+        fxsizer_size.Add(wx.StaticText(self.panel, -1, "", style=wx.ALIGN_CENTER), 0, wx.GROW)
+        fxsizer_size.Add(wx.StaticText(self.panel, -1, "幅", style=wx.ALIGN_CENTER), 0, wx.GROW)
+        fxsizer_size.Add(wx.StaticText(self.panel, -1, "", style=wx.ALIGN_CENTER), 0, wx.GROW)
+        fxsizer_size.Add(wx.StaticText(self.panel, -1, "高さ", style=wx.ALIGN_CENTER), 0, wx.GROW)
+        fxsizer_size.Add(self.check_size_specified, 0, wx.GROW)
+        fxsizer_size.Add(self.spin_width, 0, wx.GROW)
+        font = wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
+        text_x = wx.StaticText(self.panel, -1, "×", style=wx.ALIGN_CENTER)
+        text_x.SetFont(font)
+        fxsizer_size.Add(text_x, 0, wx.ALIGN_CENTER_VERTICAL | wx.GROW)
+        fxsizer_size.Add(self.spin_height, 0, wx.GROW)
+
+        # fxsizer_frames = wx.FlexGridSizer(rows=2, cols=2, gap=(0, 0))
+        # fxsizer_frames.Add(wx.StaticText(self.panel, -1, "", style=wx.ALIGN_CENTER), 0, wx.GROW)
+        # fxsizer_frames.Add(wx.StaticText(self.panel, -1, "総フレーム数", style=wx.ALIGN_CENTER), 0,
+        #                    wx.ALIGN_CENTER_VERTICAL)
+        # fxsizer_frames.Add(self.check_frames_specified, 0, wx.GROW)
+        # fxsizer_frames.Add(self.spin_frames_specified, 0, wx.GROW)
+
+        sizer_duration = wx.BoxSizer(wx.VERTICAL)
+        sizer_duration.Add(wx.StaticText(self.panel, -1, "表示間隔"), 0)
+        sizer_duration.Add(self.spin_duration, 0)
+
+        sizer_param.Add(fxsizer_size, 0, wx.GROW | wx.RIGHT, 30)
+        # sizer_param.Add(fxsizer_frames, 0, wx.GROW | wx.LEFT | wx.RIGHT, 30)
+        sizer_param.Add(sizer_duration, 0, wx.GROW)
+
+        fxsizer_filter = wx.FlexGridSizer(rows=2, cols=2, gap=(5, 5))
         fxsizer_filter.Add(wx.StaticText(self.panel, -1, "画像フィルタ", style=wx.ALIGN_CENTER), 1,
                            wx.GROW)
         fxsizer_filter.Add(wx.StaticText(self.panel, -1, "色フィルタ", style=wx.ALIGN_CENTER), 1,
                            wx.GROW)
-        fxsizer_filter.Add(self.spin_duration, 1, wx.GROW)
+
         fxsizer_filter.Add(self.combo_filter_image, 1, wx.GROW)
         fxsizer_filter.Add(self.combo_filter_color, 1, wx.GROW)
 
+        sizer_btn_composite = wx.BoxSizer()
+        sizer_btn_composite.Add(self.btn_save, 1, wx.GROW)
+        sizer_btn_composite.Add(wx.StaticText(self.panel, -1, ""), 1, wx.GROW)
+        sizer_btn_composite.Add(self.btn_play, 1, wx.GROW)
+
+        sizer_filter.Add(sizer_param, 0, wx.GROW | wx.ALL, 10)
         sizer_filter.Add(fxsizer_filter, 0, wx.GROW | wx.ALL, 10)
-        sizer_filter.Add(self.btn_play, 0, wx.GROW | wx.ALL, 10)
-        sizer_filter.Add(self.btn_save, 0, wx.GROW | wx.ALL, 10)
+        sizer_filter.Add(sizer_btn_composite, 1, wx.GROW | wx.ALL, 10)
 
         sbsizer_composite.Add(sizer_filter, 0, wx.GROW)
 
@@ -457,16 +543,16 @@ class MainFrame(wx.Frame):
         sbox_imagelist = wx.StaticBox(self.panel, -1, "画像一覧")
         sbsizer_imagelist = wx.StaticBoxSizer(sbox_imagelist, wx.VERTICAL)
         sizer_rlc = wx.BoxSizer()
-        sizer_btn = wx.BoxSizer(wx.VERTICAL)
+        sizer_btn_imagelist = wx.BoxSizer(wx.VERTICAL)
 
-        sizer_btn.Add(self.btn_up, 0, wx.ALL, 5)
-        sizer_btn.Add(self.btn_down, 0, wx.ALL, 5)
-        sizer_btn.Add(wx.StaticText(self.panel, -1, ""), 0, wx.ALL, 5)
-        sizer_btn.Add(self.btn_remove, 0, wx.ALL, 5)
-        sizer_btn.Add(self.btn_clear, 0, wx.ALL, 5)
+        sizer_btn_imagelist.Add(self.btn_up, 0, wx.ALL, 5)
+        sizer_btn_imagelist.Add(self.btn_down, 0, wx.ALL, 5)
+        sizer_btn_imagelist.Add(wx.StaticText(self.panel, -1, ""), 0, wx.ALL, 5)
+        sizer_btn_imagelist.Add(self.btn_remove, 0, wx.ALL, 5)
+        sizer_btn_imagelist.Add(self.btn_clear, 0, wx.ALL, 5)
 
         sizer_rlc.Add(self.rlc_image, 1, wx.GROW | wx.ALL, 5)
-        sizer_rlc.Add(sizer_btn, 0, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 5)
+        sizer_rlc.Add(sizer_btn_imagelist, 0, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 5)
         sbsizer_imagelist.Add(sizer_rlc, 1, wx.GROW | wx.ALL, 5)
 
         fxsizer_main = wx.FlexGridSizer(rows=2, cols=2, gap=(5, 5))
@@ -475,10 +561,8 @@ class MainFrame(wx.Frame):
         fxsizer_main.Add(sizer_property, 0, wx.GROW)
         fxsizer_main.Add(sbsizer_imagelist, 0, wx.GROW)
         self.sizer_main.Add(fxsizer_main, 0, wx.GROW | wx.ALL, 10)
-
         self.panel.SetSizer(self.sizer_main)
-        self.sizer_main.Fit(self)
-        self.Centre()
+        self.fit_contains_scrollbar()
 
     def on_keyboard(self, event):
         if not self.is_selected_image():
@@ -496,11 +580,31 @@ class MainFrame(wx.Frame):
 
         self.on_change_parts_properties(None)
 
+    def on_check_size(self, event):
+        is_checked = self.check_size_specified.GetValue()
+        self.spin_width.Enable(is_checked)
+        self.spin_height.Enable(is_checked)
+        self.on_change_composite_properties(None)
+
+    # def on_check_frames(self, event):
+    #     is_checked = self.check_size_specified.GetValue()
+    #     self.spin_frames_specified.Enable(is_checked)
+    #     self.on_change_composite_properties(None)
+
     def on_change_composite_properties(self, event):
+        size_specify = ([int(self.spin_width.GetValue()), int(self.spin_height.GetValue())]
+                        if self.check_size_specified.GetValue() else None)
+
+        # count_frames_specify = (self.spin_frames_specified.GetValue()
+        #                         if self.check_frames_specified.GetValue() else None)
+
+        count_frames_specify = None
+
         filter_image = self.combo_filter_image.GetValue()
         filter_color = self.combo_filter_color.GetValue()
         duration = self.spin_duration.GetValue()
-        self.image_composite.set_filter(filter_image, filter_color, duration)
+        self.image_composite.set_params(size_specify, count_frames_specify, filter_image,
+                                        filter_color, duration)
         self.start_delay_update()
 
     def on_change_parts_properties(self, event):
@@ -578,6 +682,20 @@ class MainFrame(wx.Frame):
                                   win32con.SWP_SHOWWINDOW)
         except Exception:
             pass
+
+    # GetScrollThumbが0しか返さないのでスマートではない実装に
+    def on_scroll(self, event):
+        obj = event.GetEventObject()
+        pos_delta = 1 if 0 > event.GetWheelRotation() else -1
+        orientation = event.GetWheelAxis()
+        pos_cur = obj.GetScrollPos(orientation)
+        obj.SetScrollPos(orientation, pos_cur + pos_delta)
+        pos_next = obj.GetScrollPos(orientation)
+        within_scroll_range = (pos_cur != pos_next)
+        if within_scroll_range:
+            event.Skip()
+        else:
+            self.panel.GetEventHandler().ProcessEvent(event)
 
     def on_append(self, event):
         path_image, frames = event.path_image, event.frames
@@ -668,7 +786,7 @@ class MainFrame(wx.Frame):
         label_play = "再生" if self.panel_preview.is_playing() else "停止"
         self.panel_preview.on_play()
         self.btn_play.SetLabel(label_play)
-        self.sizer_main.Fit(self)
+        self.fit_contains_scrollbar()
 
     def on_save(self, event):
         if not self.image_composite.has_composite_image():
@@ -757,14 +875,29 @@ class MainFrame(wx.Frame):
         self.slider_h.SetMin(-width // 2)
         self.slider_v.SetMax(height // 2)
         self.slider_v.SetMin(-height // 2)
+        self.spin_width.SetValue(width)
+        self.spin_height.SetValue(height)
         self.panel_preview.load_frame(image)
         self.panel_preview.show_frame()
         self.btn_play.SetLabel("再生")
-        self.sizer_main.Fit(self)
+        self.fit_contains_scrollbar()
 
-    def on_transparent(self, event):
-        dial = wx.ProgressDialog("title", "message", parent=self)
-        dial.Pulse()
+    def fit_contains_scrollbar(self):
+        self.panel.SetupScrolling(scrollToTop=False, scrollIntoView=False)
+        width_sc, height_sc = (wx.SystemSettings.GetMetric(wx.SYS_VSCROLL_X),
+                               wx.SystemSettings.GetMetric(wx.SYS_HSCROLL_Y))
+        width, height = self.sizer_main.ComputeFittingWindowSize(self)
+        size_contains = (np.clip(width + width_sc, None, WIDTH_WORKING),
+                         np.clip(height + height_sc, None, HEIGHT_WORKING))
+
+        size_current = self.GetSize()
+        if not size_current == size_contains:
+            width_cur, height_cur = size_current
+            width_con, height_con = size_contains
+            is_growth = width_cur < width_con or height_cur < height_con
+            self.SetSize(size_contains)
+            if is_growth:
+                self.Centre()
 
     def on_close(self, event):
         with wx.MessageDialog(self, "終了してよろしいですか？", "終了確認",

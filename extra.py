@@ -3,6 +3,8 @@ import wx
 import pathlib
 import math
 import threading
+import sys
+from config import *
 
 import transparator
 

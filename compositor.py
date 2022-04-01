@@ -122,9 +122,9 @@ class PartsImage:
         self.size_base = size_base
         delta_frames = count_frames - self.count_frames
         self.offsets = (self.offsets[:count_frames] if delta_frames <= 0
-                        else self.offsets+(OFFSET_FLAT * delta_frames))
+                        else self.offsets + (OFFSET_FLAT * delta_frames))
         self.angles = (self.angles[:count_frames] if delta_frames <= 0
-                       else self.angles+(ANGLE_FLAT* delta_frames))
+                       else self.angles + (ANGLE_FLAT * delta_frames))
         self.count_frames = count_frames
 
         self.offsets_tanuki = offsets_tanuki if not self.is_base else [(0, 0)] * self.count_frames
@@ -150,6 +150,8 @@ class CompositeImage:
         self.count_frames = 1
         self.duration = 100
         self.size_base = DEFAULT_BASE_SIZE
+        self.size_specify = None
+        self.count_frames_specify = None
         self.count_id_issued = 0
         self.offsets_tanuki = [(0, 0)] * self.count_frames
         self.dic_func_filter_image = {FILTER_IMAGE_CONTOUR: self.filtering_image_line,
@@ -217,10 +219,13 @@ class CompositeImage:
         image_parts.set_properties(ix_frame, offset, angle, zoom, anti_alias, is_flip,
                                    alignment, color_multiply)
 
-    def set_filter(self, filter_image, filter_color, duration):
+    def set_params(self,size_specify,count_frames_specify, filter_image, filter_color, duration):
+        self.size_specify=size_specify
+        self.count_frames_specify=count_frames_specify
         self.filter_image = filter_image
         self.filter_color = filter_color
         self.duration = duration
+        self.change_size_base()
 
     def get_properties(self, id_image):
         image_parts = self.od_parts.get(id_image, False)
@@ -228,41 +233,15 @@ class CompositeImage:
         return properties
 
     def change_size_base(self):
-        stem_base = ""
-        size_change = DEFAULT_BASE_SIZE
-        count_frames_change = 1
-        for image_parts in self.od_parts.values():
-            size_parts = image_parts.size
-            count_frames_parts = len(image_parts.frames_origin)
-
-            if image_parts.is_base:
-                size_change = size_parts
-                count_frames_change = count_frames_parts
-                stem_base = image_parts.path_image.stem
-                break
-
-            size_change = size_parts if size_parts > size_change else size_change
-            count_frames_change = (count_frames_parts if count_frames_parts > count_frames_change
-                                   else count_frames_change)
-
-        self.size_base = size_change
-        self.count_frames = count_frames_change
+        size_change, count_frames_change, stem_base = self.get_params_from_images()
+        self.size_base = self.size_specify if self.size_specify else size_change
+        self.count_frames = self.count_frames_specify if self.count_frames_specify else count_frames_change
         self.offsets_tanuki = (DIC_TANUKI_OFFSET.get(stem_base, [(0, 0)])
                                * self.count_frames)
 
         for image_parts in self.od_parts.values():
             image_parts.change_base_composite(self.size_base, self.count_frames,
                                               self.offsets_tanuki)
-
-
-    def create_frame(self, num_frame):
-        pass
-
-    def set_base_image(self, path_image):
-        pass
-
-    def append_image(self, path_image):
-        pass
 
     def composite_frame(self, num_frame):
         images_visible = self.get_images_visible()
@@ -278,12 +257,15 @@ class CompositeImage:
             image_campus = self.composite_image(frames, num_frame, show_background)
             # gif作成のための下処理
             alpha = image_campus.split()[-1]
+
+            # 減色処理
+            image_campus = image_campus.convert("RGB").quantize(method=Image.MEDIANCUT,
+                                                                kmeans=100).convert("RGB")
             # 最端の画素が黒だと背景と同化してしまう。
             # そうすると透過されて表示上端が欠けてしまうので(0,0,0)から(1,1,1)色を置換する。
             black = (0, 0, 0)
             black_replace = (1, 1, 1)
-            image_composite = image_campus.convert("RGB")
-            r, g, b = image_composite.split()
+            r, g, b = image_campus.split()
             r = r.point(lambda x: 1 if x == black[0] else 0, mode="1")
             g = g.point(lambda x: 1 if x == black[1] else 0, mode="1")
             b = b.point(lambda x: 1 if x == black[2] else 0, mode="1")
@@ -293,8 +275,10 @@ class CompositeImage:
 
             image_composite = image_campus.convert("RGB").convert("P", palette=Image.ADAPTIVE,
                                                                   colors=255)
+
             mask = Image.eval(alpha, lambda a: 255 if a <= 128 else 0)
             image_composite.paste(255, mask=mask)
+
             frames_composite.append(image_composite)
 
         frames_composite[0].save(path_save, save_all=True, append_images=frames_composite[1:],
@@ -430,3 +414,23 @@ class CompositeImage:
 
     def get_lst_has_anti_alias(self):
         return [parts.anti_alias for parts in self.od_parts.values()]
+
+    def get_params_from_images(self):
+        stem_base = ""
+        size_change = DEFAULT_BASE_SIZE
+        count_frames_change = 1
+        for image_parts in self.od_parts.values():
+            size_parts = image_parts.size
+            count_frames_parts = len(image_parts.frames_origin)
+
+            if image_parts.is_base:
+                size_change = size_parts
+                count_frames_change = count_frames_parts
+                stem_base = image_parts.path_image.stem
+                break
+
+            size_change = size_parts if size_parts > size_change else size_change
+            count_frames_change = (count_frames_parts if count_frames_parts > count_frames_change
+                                   else count_frames_change)
+
+        return size_change, count_frames_change, stem_base
