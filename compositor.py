@@ -24,18 +24,20 @@ class PartsImage:
         self.is_flip = False
         self.alignment = None
         self.color_multiply = None
+        self.has_costume = False
 
         self.offsets_tanuki = offsets_tanuki if not self.is_base else [(0, 0)] * self.count_frames
         self.is_animated = None if not frames else len(frames) > 1
         self.frames_origin = self.load_frames() if not frames else frames
         self.frames_processed = self.create_frames()
+        self.frames_mask = self.get_frames_mask()
         self.iter_frames = None
 
     def get_type(self):
-        if self.path_image.parent.stem in TYPES_IMAGE:
+        if self.path_image.parent.stem in TYPES_IMAGE_REPLACE:
             return self.path_image.parent.stem
 
-        elif self.path_image.parent.parent.stem in TYPES_IMAGE:
+        elif self.path_image.parent.parent.stem in TYPES_IMAGE_REPLACE:
             return self.path_image.parent.parent.stem
 
         else:
@@ -53,11 +55,13 @@ class PartsImage:
         offsets_alignment = cycle([alignment[0] for alignment in aligmnents])
         angles_alignment = cycle([alignment[1] for alignment in aligmnents])
 
-        offsets = [(xs + x + xa, ys + y + ya) for (xs, ys), (x, y), (xa, ya) in
+        offsets = [(xt + x + xa, yt + y + ya) for (xt, yt), (x, y), (xa, ya) in
                    zip(self.offsets_tanuki, self.offsets, offsets_alignment)]
 
         angles = [a + ad for a, ad in zip(self.angles, angles_alignment)]
-        frames_cycle = cycle(self.frames_origin)
+        frames_cycle = (cycle(self.frames_origin) if not (self.is_base and self.has_costume) else
+                        cycle(self.clip_face_for_costume()))
+
         frames_processed = []
         for frame, offset, angle in zip(frames_cycle, offsets, angles):
             frame_processed = self.process_image(frame, offset, angle)
@@ -85,6 +89,39 @@ class PartsImage:
 
         return image_frame
 
+    def clip_face_for_costume(self):
+        for key in DIC_TANUKI_OFFSET.keys():
+            if key in self.path_image.stem:
+                x_tanuki, y_tanuki = DIC_TANUKI_OFFSET.get(key, OFFSET_FLAT)[0]
+                break
+
+        else:
+            x_tanuki, y_tanuki = OFFSET_FLAT[0]
+
+        images_face = []
+        for im_face, mask in zip(self.frames_origin, self.frames_mask):
+            im_face = im_face.copy()
+            offset_mask = (im_face.width // 2 - mask.width // 2 + x_tanuki,
+                           im_face.height // 2 - mask.height // 2 + y_tanuki)
+            alpha_mask = Image.new("L", im_face.size, 0)
+            alpha_mask.paste(mask, offset_mask)
+            alpha_mask = alpha_mask.convert("1")
+            alpha_face = im_face.split()[-1].convert("1")
+
+            alpha = ImageChops.logical_and(alpha_face, alpha_mask).convert("L")
+            im_face.putalpha(alpha)
+            # たぬきごとのオフセットを与えていた場合、顔位置を標準に合わせる
+            if x_tanuki or y_tanuki:
+                offset_adjust = (mask.width // 2 - im_face.width // 2 - x_tanuki,
+                                 mask.height // 2 - im_face.height // 2 - y_tanuki)
+                campus = Image.new("RGBA", mask.size, (0, 0, 0, 255))
+                campus.paste(im_face, offset_adjust)
+                im_face = campus
+
+            images_face.append(im_face)
+
+        return images_face
+
     def multiply_color(self, image):
         alpha = image.split()[-1]
         color_mask = Image.new("RGBA", image.size, self.color_multiply)
@@ -111,10 +148,11 @@ class PartsImage:
                       "color_multiply": self.color_multiply}
         return properties
 
-    def change_base_composite(self, size_base, count_frames, offsets_tanuki):
+    def change_base_composite(self, size_base, count_frames, offsets_tanuki, has_costume):
         lst_changed = [not self.size_base == size_base,
                        not self.count_frames == count_frames,
-                       not self.offsets_tanuki == offsets_tanuki]
+                       not self.offsets_tanuki == offsets_tanuki,
+                       not self.has_costume == has_costume]
 
         if not any(lst_changed):
             return
@@ -127,11 +165,19 @@ class PartsImage:
                        else self.angles + (ANGLE_FLAT * delta_frames))
         self.count_frames = count_frames
 
-        self.offsets_tanuki = offsets_tanuki if not self.is_base else [(0, 0)] * self.count_frames
+        self.offsets_tanuki = (offsets_tanuki if not self.is_base and not has_costume
+                               else [(0, 0)] * self.count_frames)
+
+        self.has_costume = has_costume
         self.frames_processed = self.create_frames()
 
     def get_frame(self, ix):
         return self.frames_processed[ix]
+
+    def get_frames_mask(self):
+        frames_mask = [im.convert("RGBA").split()[-1] for im in
+                       ImageSequence.Iterator(Image.open(PATH_MASK_FACE))] if self.is_base else []
+        return frames_mask
 
     def __iter__(self):
         self.iter_frames = iter(self.frames_processed)
@@ -172,7 +218,7 @@ class CompositeImage:
                                   self.offsets_tanuki, frames)
         type_append = image_append.get_type()
         id_append = None
-        if type_append in TYPES_IMAGE:
+        if type_append in TYPES_IMAGE_REPLACE:
             for id_parts, image_parts in zip(self.od_parts.keys(), self.od_parts.values()):
                 if type_append == image_parts.get_type():
                     id_append = id_parts
@@ -219,9 +265,9 @@ class CompositeImage:
         image_parts.set_properties(ix_frame, offset, angle, zoom, anti_alias, is_flip,
                                    alignment, color_multiply)
 
-    def set_params(self,size_specify,count_frames_specify, filter_image, filter_color, duration):
-        self.size_specify=size_specify
-        self.count_frames_specify=count_frames_specify
+    def set_params(self, size_specify, count_frames_specify, filter_image, filter_color, duration):
+        self.size_specify = size_specify
+        self.count_frames_specify = count_frames_specify
         self.filter_image = filter_image
         self.filter_color = filter_color
         self.duration = duration
@@ -236,12 +282,23 @@ class CompositeImage:
         size_change, count_frames_change, stem_base = self.get_params_from_images()
         self.size_base = self.size_specify if self.size_specify else size_change
         self.count_frames = self.count_frames_specify if self.count_frames_specify else count_frames_change
-        self.offsets_tanuki = (DIC_TANUKI_OFFSET.get(stem_base, [(0, 0)])
-                               * self.count_frames)
+
+        if self.has_costume():
+            self.offsets_tanuki = OFFSET_FLAT * self.count_frames
+
+        else:
+            for key in DIC_TANUKI_OFFSET.keys():
+                if key in stem_base:
+                    self.offsets_tanuki = DIC_TANUKI_OFFSET.get(key,
+                                                                OFFSET_FLAT) * self.count_frames
+                    break
+
+            else:
+                self.offsets_tanuki = OFFSET_FLAT * self.count_frames
 
         for image_parts in self.od_parts.values():
             image_parts.change_base_composite(self.size_base, self.count_frames,
-                                              self.offsets_tanuki)
+                                              self.offsets_tanuki, self.has_costume())
 
     def composite_frame(self, num_frame):
         images_visible = self.get_images_visible()
@@ -276,7 +333,7 @@ class CompositeImage:
             image_composite = image_campus.convert("RGB").convert("P", palette=Image.ADAPTIVE,
                                                                   colors=255)
 
-            mask = Image.eval(alpha, lambda a: 255 if a <= 128 else 0)
+            mask = Image.eval(alpha, lambda a: 255 if a <= 100 else 0)
             image_composite.paste(255, mask=mask)
 
             frames_composite.append(image_composite)
@@ -414,6 +471,9 @@ class CompositeImage:
 
     def get_lst_has_anti_alias(self):
         return [parts.anti_alias for parts in self.od_parts.values()]
+
+    def has_costume(self):
+        return COSTUME in [image_parts.get_type() for image_parts in self.od_parts.values()]
 
     def get_params_from_images(self):
         stem_base = ""

@@ -23,6 +23,48 @@ def create_transparent(parent, event):
     thread_mask.start()
 
 
+def clip_face_for_costume(parent, event):
+    path_image = select_file(None, "きぐるみ用に顔をきりぬきたい画像を選択", "たぬき画像(png,gif)|*.gif;*.png")
+    if not path_image:
+        return
+
+    for key in DIC_TANUKI_OFFSET.keys():
+        if key in path_image.stem:
+            x_tanuki, y_tanuki = DIC_TANUKI_OFFSET.get(key, OFFSET_FLAT)[0]
+            break
+
+    else:
+        x_tanuki, y_tanuki = OFFSET_FLAT[0]
+
+    images_source = [im.convert("RGBA") for im in ImageSequence.Iterator(Image.open(path_image))]
+    lst_mask = [im.convert("RGBA").split()[-1] for im in
+                ImageSequence.Iterator(Image.open(PATH_MASK_FACE))]
+
+    images_face = []
+    for im_face, mask in zip(images_source, lst_mask):
+        offset_mask = (im_face.width // 2 - mask.width // 2 + x_tanuki,
+                       im_face.height // 2 - mask.height // 2 + y_tanuki)
+        alpha_mask = Image.new("L", im_face.size, 0)
+        alpha_mask.paste(mask, offset_mask)
+        alpha_mask = alpha_mask.convert("1")
+        alpha_face = im_face.split()[-1].convert("1")
+
+        alpha = ImageChops.logical_and(alpha_face, alpha_mask).convert("L")
+        im_face.putalpha(alpha)
+        # たぬきごとのオフセットを与えていた場合、顔位置を標準に合わせる
+        if x_tanuki or y_tanuki:
+            offset_adjust = (mask.width // 2 - im_face.width//2 - x_tanuki,
+                             mask.height // 2 - im_face.height // 2 - y_tanuki)
+            campus = Image.new("RGBA", mask.size, (0, 0, 0, 255))
+            campus.paste(im_face, offset_adjust)
+            im_face = campus
+
+        images_face.append(im_face)
+
+    path_image=pathlib.Path(path_image.parent/f"{path_image.stem}きぐるみ顔{path_image.suffix}")
+    wx.PostEvent(parent, event(path_image=path_image, frames=images_face))
+
+
 def separate_animation():
     lst_path = select_file(None, "アニメーション画像選択(複数選択可)",
                            "アニメーション画像(png,gif)|*.gif;*.png", style=wx.FD_MULTIPLE)
@@ -72,7 +114,10 @@ def connect_frames(duration):
         alpha = frame.split()[-1]
         black = (0, 0, 0)
         black_replace = (1, 1, 1)
-        frame = frame.convert("RGB")
+
+        # 減色処理
+        frame = frame.convert("RGB").quantize(colors=255, method=Image.MEDIANCUT,
+                                              kmeans=100).convert("RGB")
         r, g, b = frame.split()
         r = r.point(lambda x: 1 if x == black[0] else 0, mode="1")
         g = g.point(lambda x: 1 if x == black[1] else 0, mode="1")

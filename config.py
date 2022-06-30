@@ -26,15 +26,15 @@ PROCESS_PER_MONITOR_DPI_AWARE = 2
 
 BASE = "素体"
 TRANSPARENT = "肌透過"
+COSTUME = "きぐるみ"
 FACE = "表情"
 BROWS = "眉"
 EYES = "目"
 MOUTH = "口"
 EMOTION = "感情"
 ETC = "その他"
-COLLAGE = "加工用素材"
 
-TYPES_IMAGE = [BASE, TRANSPARENT, FACE, BROWS, EYES, MOUTH]
+TYPES_IMAGE_REPLACE = [BASE, TRANSPARENT, COSTUME, FACE, BROWS, EYES, MOUTH]
 
 FOLDER_IMAGE = pathlib.Path(sys.prefix + "/Image")
 FOLDER_ICON = FOLDER_IMAGE / "Icon"
@@ -44,10 +44,11 @@ FOLDER_MATERIAL = FOLDER_IMAGE / "Material"
 FOLDER_BASE = FOLDER_MATERIAL / BASE
 PATH_PNG_PREVIEW = FOLDER_MATERIAL / "preview.png"
 PATH_GIF_PREVIEW = FOLDER_MATERIAL / "preview.gif"
-SUFFIXES_IMAGE = [".png", ".gif"]
+PATH_MASK_FACE = FOLDER_MATERIAL / "mask_face.gif"
+SUFFIXES_IMAGE = [".png", ".gif", ".PNG", ".GIF"]
 
-ORDER_COMPOSITE_DEFAULT = [BASE, FACE, BROWS, EYES, MOUTH, EMOTION, ETC, COLLAGE]
-LST_ORDER_PARTS = [FACE, BROWS, EYES, MOUTH, ETC, COLLAGE]
+ORDER_COMPOSITE_DEFAULT = [BASE, COSTUME, FACE, BROWS, EYES, MOUTH, EMOTION, ETC]
+LST_ORDER_PARTS = [FACE, BROWS, EYES, MOUTH, ETC, COSTUME]
 EXTERNAL = "外部画像"
 
 DIC_FOLDER_BASE = {folder.stem: folder for folder in FOLDER_BASE.iterdir()
@@ -58,9 +59,9 @@ DIC_DIC_PARTS = {
     folder_parts.stem: {path_image.stem: path_image for path_image in folder_parts.iterdir()}
     for folder_parts in LST_FOLDER_PARTS}
 
-DIC_TANUKI_OFFSET = {"イナリワン顔無し": [(-25, 0)],
-                     "ライスシャワー顔無し": [(0, 25)],
-                     "マーベラスサンデー顔無し": [(-11, 0)]}
+DIC_TANUKI_OFFSET = {"イナリワン": [(-25, 0)],
+                     "ライスシャワー": [(0, 25)],
+                     "マーベラスサンデー": [(-11, 0)]}
 
 FILTER_IMAGE_CONTOUR = "鉛筆風"
 FILTER_IMAGE_DOT = "ドット風"
@@ -94,8 +95,6 @@ LST_ALIGNMENT = [ALIGNMENT_HUT,
 ALIGNMENT_FLAT = [((0, 0), 0)]
 OFFSET_FLAT = [(0, 0)]
 ANGLE_FLAT = [0]
-# LST_ALIGNMENT_HUT = [((362, 79), -20), ((340, 109), -20), ((289, 63), -9), ((283, 96), -14),
-#                      ((178, 108), 11), ((161, 67), 12), ((208, 73), 2), ((199, 106), 7)]
 
 LST_ALIGNMENT_HUT = [((102, -141), -27), ((75, -99), -25), ((33, -148), -8), ((23, -104), -19),
                      ((-51, -93), 7), ((-66, -134), 9), ((-30, -125), 3), ((-43, -94), 2)]

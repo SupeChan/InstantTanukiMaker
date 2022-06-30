@@ -18,6 +18,18 @@ EVENT_UPDATE, EVT_UPDATE = NewEvent()
 EVENT_APPEND, EVT_APPEND = NewEvent()
 
 
+class DropTarget(wx.FileDropTarget):
+    def __init__(self, parent):
+        super().__init__()
+        self.parent = parent
+
+    def OnDropFiles(self, x, y, filenames):
+        path_drop = filenames[0]
+        path_image = pathlib.Path(path_drop)
+        wx.PostEvent(self.parent, EVENT_APPEND(path_image=path_image, frames=None))
+        return True
+
+
 class ThumbnailPanel(ScrolledPanel):
     def __init__(self, parent, dest, path_folder):
         super().__init__(parent, size=(620, 320))
@@ -233,6 +245,7 @@ class ExtraMenuBar(wx.MenuBar):
 
         menu_separate = menu_extra.Append(-1, "アニメーション画像分割", "選択したアニメーション画像をフレームごとに分割します。")
         menu_connect = menu_extra.Append(-1, "GIF作成", "フォルダ内のPNGを名前順に結合してGIF画像を作成します。")
+        menu_clip = menu_extra.Append(-1, "きぐるみ用顔切り抜き", "アニメーション画像からきぐるみの顔部分を切り抜きます。")
         # self.Append(menu_config, "設定")
         self.Append(menu_extra, "おまけ機能")
 
@@ -240,6 +253,7 @@ class ExtraMenuBar(wx.MenuBar):
 
         self.Bind(wx.EVT_MENU, self.on_separate, menu_separate)
         self.Bind(wx.EVT_MENU, self.on_connect, menu_connect)
+        self.Bind(wx.EVT_MENU, self.on_clip, menu_clip)
 
     def on_change_size(self, event):
         print("on_change")
@@ -252,6 +266,9 @@ class ExtraMenuBar(wx.MenuBar):
 
     def on_connect(self, event):
         extra.connect_frames(self.Parent.spin_duration.GetValue())
+
+    def on_clip(self, event):
+        extra.clip_face_for_costume(self.Parent, EVENT_APPEND)
 
 
 class MainFrame(wx.Frame):
@@ -302,9 +319,9 @@ class MainFrame(wx.Frame):
 
         # 画像全体
         self.check_size_specified = wx.CheckBox(self.panel, -1, "")
-        self.spin_width = FloatSpin(self.panel, -1, max_val=1000, min_val=500, increment=50,
+        self.spin_width = FloatSpin(self.panel, -1, max_val=1000, min_val=100, increment=50,
                                     style=wx.TE_PROCESS_ENTER)
-        self.spin_height = FloatSpin(self.panel, -1, max_val=1000, min_val=500, increment=50,
+        self.spin_height = FloatSpin(self.panel, -1, max_val=1000, min_val=100, increment=50,
                                      style=wx.TE_PROCESS_ENTER)
         # self.check_frames_specified = wx.CheckBox(self.panel, -1, "")
         # self.spin_frames_specified = wx.SpinCtrl(self.panel, -1, max=16, min=1,
@@ -333,6 +350,7 @@ class MainFrame(wx.Frame):
         self.SetIcon(wx.Icon(str(PATH_ICON)))
         self.SetMenuBar(ExtraMenuBar())
         self.CreateStatusBar()
+        self.SetDropTarget(DropTarget(self))
 
         self.panel.SetupScrolling(scrollToTop=False, scrollIntoView=False)
         self.panel.SetDoubleBuffered(True)
@@ -699,6 +717,12 @@ class MainFrame(wx.Frame):
 
     def on_append(self, event):
         path_image, frames = event.path_image, event.frames
+        if event.path_image.suffix not in SUFFIXES_IMAGE:
+            with wx.MessageDialog(None, "取り込める画像はGIFとPNGだけです!", "画像取り込みエラー",
+                                  style=wx.ICON_ERROR) as dial:
+                dial.ShowModal()
+                return False
+
         id_image, count_frames, is_animated = self.image_composite.append(path_image, frames)
         label_animated = "【アニメ】" if is_animated else "【静止画】"
         name_display = path_image.stem + label_animated
@@ -717,6 +741,8 @@ class MainFrame(wx.Frame):
         self.rlc_image.Select(ix_append)
         self.on_select_image(None)
         self.update_composite()
+
+        return True
 
     def on_remove(self, is_all):
         def inner(event):
@@ -771,7 +797,7 @@ class MainFrame(wx.Frame):
 
     def on_play(self, event):
         if not self.image_composite.has_composite_image():
-            with wx.MessageDialog(self, "表示する画像がありません。", "画像非表示",
+            with wx.MessageDialog(self, "再生する画像が表示されていません！", "再生エラー",
                                   style=wx.ICON_ERROR) as dial:
                 dial.ShowModal()
 
@@ -790,7 +816,7 @@ class MainFrame(wx.Frame):
 
     def on_save(self, event):
         if not self.image_composite.has_composite_image():
-            with wx.MessageDialog(self, "表示する画像がありません。", "画像非表示",
+            with wx.MessageDialog(self, "保存する画像が表示されていません！", "保存エラー",
                                   style=wx.ICON_ERROR) as dial:
                 dial.ShowModal()
 
